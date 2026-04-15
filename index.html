@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>DA42 Trainer v2.9 FINAL STABLE</title>
+<title>DA42 Trainer v2.9 FIXED</title>
 
 <style>
 body{
@@ -13,7 +13,7 @@ body{
     font-size:18px;
 }
 
-/* 🔥 最关键：背景层 */
+/* 背景层 */
 #bg{
     position:fixed;
     top:0;
@@ -28,7 +28,6 @@ body{
     background-repeat:no-repeat;
 }
 
-/* 页面层 */
 .page{
     display:none;
     height:100vh;
@@ -59,15 +58,13 @@ button{
 
 <body>
 
-<!-- 🔥 背景层 -->
 <div id="bg"></div>
 
 <!-- MAIN -->
 <div id="main" class="page show">
-    <h1>DA42 TRAINER v2.9 FINAL</h1>
+    <h1>DA42 TRAINER v2.9 FIXED</h1>
 
     <button onclick="unlockVoice()">🔊 Enable Sound</button>
-
     <button onclick="go('train')">Start Training</button>
     <button onclick="go('settings')">Settings</button>
     <button onclick="go('history')">History</button>
@@ -87,8 +84,7 @@ button{
 <div id="tp" class="page">
     <h2>Traffic Pattern</h2>
 
-    <input type="range" min="1" max="10" value="5"
-        oninput="setTP(this.value)">
+    <input type="range" min="1" max="10" value="5" oninput="setTP(this.value)">
 
     <h3 id="tpTimer">05:00</h3>
     <p id="tpEvent">READY</p>
@@ -100,7 +96,7 @@ button{
     <button onclick="back()">Back</button>
 </div>
 
-<!-- XC -->
+<!-- XC MENU -->
 <div id="xc" class="page">
     <h2>Cross Country Flight</h2>
 
@@ -130,15 +126,14 @@ button{
 
     <p>Font Size</p>
     <input type="range" min="12" max="28" value="18"
-        oninput="setFontSize(this.value)">
+        oninput="document.body.style.fontSize=this.value+'px'">
 
     <p>Button Size</p>
     <input type="range" min="50" max="100" value="75"
-        oninput="setButtonSize(this.value)">
+        oninput="document.querySelectorAll('button').forEach(b=>b.style.width=this.value+'%')">
 
     <p>Background Image</p>
-    <input type="file" accept="image/*"
-        onchange="setBackground(this)">
+    <input type="file" accept="image/*" onchange="setBackground(this)">
 
     <br><br>
     <button onclick="back()">Back</button>
@@ -151,12 +146,11 @@ button{
     <button onclick="back()">Back</button>
 </div>
 
-<div id="version">v2.9 FINAL STABLE (BACKGROUND FIX)</div>
+<div id="version">v2.9 FIXED ENGINE STABLE</div>
 
 <script>
 
 /* ================= BACKGROUND ================= */
-
 function setBackground(input){
 
     let file=input.files[0];
@@ -168,22 +162,18 @@ function setBackground(input){
 
         let img=e.target.result;
 
-        /* ✔ 直接写入背景层 */
         document.getElementById("bg").style.backgroundImage =
             `url("${img}")`;
 
-        /* ✔ 保存 */
         localStorage.setItem("bg", img);
     };
 
     reader.readAsDataURL(file);
 }
 
-/* ✔ 恢复背景 */
 window.onload=()=>{
 
     let bg=localStorage.getItem("bg");
-
     if(bg){
         document.getElementById("bg").style.backgroundImage =
             `url("${bg}")`;
@@ -216,15 +206,172 @@ function back(){
     document.getElementById(p).classList.add("show");
 }
 
-/* ================= PLACEHOLDERS (保留你的逻辑) ================= */
-function setFontSize(v){
-    document.body.style.fontSize=v+"px";
+/* ================= STATE ================= */
+let mode=null;
+let phase=null;
+let state="IDLE";
+
+let timer=null;
+let endTime=0;
+
+/* ================= TP ================= */
+let tpMin=5;
+
+const tpFailures=[
+    "LEFT ENGINE FAILURE",
+    "LEFT ENGINE FIRE",
+    "RIGHT ENGINE FAILURE",
+    "RIGHT ENGINE FIRE"
+];
+
+const tpCallouts=[
+    "STABLE CONTINUE",
+    "UNSTABLE GO AROUND"
+];
+
+/* ================= XC ================= */
+const xcFailures=[
+    "LEFT ENGINE FAILURE",
+    "LEFT ENGINE FIRE",
+    "RIGHT ENGINE FAILURE",
+    "RIGHT ENGINE FIRE"
+];
+
+const xcFinalCalls=[
+    "RUNWAY IN SIGHT",
+    "RUNWAY NOT IN SIGHT",
+    "TRAFFIC ON RUNWAY",
+    "200 CHECK",
+    "NO RESPONSE",
+    "GO AROUND"
+];
+
+/* ================= CORE ENGINE ================= */
+function start(m,p=null){
+
+    reset();
+
+    mode=m;
+    phase=p;
+    state="RUNNING";
+
+    let duration=getDuration(m,p);
+    endTime=Date.now()+duration;
+
+    startTimer();
+
+    if(m==="TP") scheduleTP(duration);
+    if(m==="XC") scheduleXC(duration,p);
+
+    if(m==="XC") go("xcSim");
+    else go("tp");
 }
 
-function setButtonSize(v){
-    document.querySelectorAll("button").forEach(b=>{
-        b.style.width=v+"%";
-    });
+function getDuration(m,p){
+
+    if(m==="TP") return tpMin*60000;
+
+    if(m==="XC"){
+        if(p==="takeoff") return 120000;
+        if(p==="cruise") return 300000;
+        if(p==="descent") return 180000;
+        if(p==="landing") return 120000;
+        if(p==="final") return 60000;
+    }
+
+    return 60000;
+}
+
+/* ================= TIMER ================= */
+function startTimer(){
+
+    clearInterval(timer);
+
+    timer=setInterval(()=>{
+
+        if(state!=="RUNNING") return;
+
+        let t=endTime-Date.now();
+        if(t<=0) return;
+
+        let m=Math.floor(t/60000);
+        let s=Math.floor((t%60000)/1000);
+
+        if(mode==="TP"){
+            document.getElementById("tpTimer").innerText =
+                String(m).padStart(2,'0')+":"+String(s).padStart(2,'0');
+        }
+
+        if(mode==="XC"){
+            document.getElementById("xcTimer").innerText =
+                String(m).padStart(2,'0')+":"+String(s).padStart(2,'0');
+        }
+
+    },500);
+}
+
+/* ================= TP ================= */
+function scheduleTP(duration){
+
+    setTimeout(()=>{
+
+        if(state!=="RUNNING"||mode!=="TP") return;
+
+        let f=tpFailures[Math.floor(Math.random()*tpFailures.length)];
+        document.getElementById("tpEvent").innerText=f;
+        speak(f);
+
+    },10000);
+
+    setTimeout(()=>{
+
+        if(state!=="RUNNING"||mode!=="TP") return;
+
+        let c=tpCallouts[Math.floor(Math.random()*tpCallouts.length)];
+        document.getElementById("tpEvent").innerText=c;
+        speak(c);
+
+    },duration-30000);
+}
+
+/* ================= XC ================= */
+function scheduleXC(duration,p){
+
+    setTimeout(()=>{
+
+        if(state!=="RUNNING"||mode!=="XC") return;
+
+        if(p!=="final"){
+            let f=xcFailures[Math.floor(Math.random()*xcFailures.length)];
+            document.getElementById("xcEvent").innerText=f;
+            speak(f);
+        }else{
+            let c=xcFinalCalls[Math.floor(Math.random()*xcFinalCalls.length)];
+            document.getElementById("xcEvent").innerText=c;
+            speak(c);
+        }
+
+    },10000);
+}
+
+/* ================= CONTROL ================= */
+function pause(){
+    state="PAUSED";
+    clearInterval(timer);
+}
+
+function reset(){
+    state="IDLE";
+    mode=null;
+    phase=null;
+
+    clearInterval(timer);
+
+    document.getElementById("tpTimer").innerText="00:00";
+    document.getElementById("xcTimer").innerText="00:00";
+
+    document.getElementById("tpEvent").innerText="RESET";
+    document.getElementById("xcEvent").innerText="RESET";
 }
 
 /* ================= VOICE ================= */
@@ -232,8 +379,7 @@ let voiceReady=false;
 
 function unlockVoice(){
     voiceReady=true;
-    let u=new SpeechSynthesisUtterance("Sound enabled");
-    speechSynthesis.speak(u);
+    speechSynthesis.speak(new SpeechSynthesisUtterance("Sound enabled"));
 }
 
 function speak(t){
@@ -242,13 +388,16 @@ function speak(t){
     let u=new SpeechSynthesisUtterance(t);
     u.lang="en-US";
     u.pitch=0.8;
-    u.rate=1;
 
     speechSynthesis.cancel();
     speechSynthesis.speak(u);
 }
 
-/* ================= PLACEHOLDER (TP/XC逻辑保留你原版即可) ================= */
+/* ================= TP slider ================= */
+function setTP(v){
+    tpMin=parseInt(v);
+    document.getElementById("tpTimer").innerText=v+":00";
+}
 
 </script>
 
